@@ -15,8 +15,8 @@ var rootCmd = &cobra.Command{
 	Long: `Drop is a simple CLI tool for file sharing.
 It allows you to send files to other devices on the same network.`,
 	Version: version,
-	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("Hello, World!")
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return cmd.Help()
 	},
 }
 
