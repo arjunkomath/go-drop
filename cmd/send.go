@@ -4,8 +4,11 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"time"
 
+	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 )
 
@@ -29,74 +32,109 @@ func sendTCPMessage(addr *net.TCPAddr) {
 	fmt.Println("Message sent")
 }
 
-// Listen for other devices on the network
-func listenForBroadcast() {
-	addr, err := net.ResolveUDPAddr("udp", ":6969")
-	if err != nil {
-		fmt.Println("Error resolving UDP address:", err)
-		return
-	}
+type errorMsg error
+type statusMsg string
 
-	conn, err := net.ListenUDP("udp", addr)
-	if err != nil {
-		fmt.Println("Error setting up UDP listener:", err)
-		return
-	}
-	defer conn.Close()
-
-	buffer := make([]byte, 1024)
-	for {
-		n, src, err := conn.ReadFromUDP(buffer)
+func startSearching() tea.Cmd {
+	return func() tea.Msg {
+		addr, err := net.ResolveUDPAddr("udp", ":6969")
 		if err != nil {
-			fmt.Println("Error reading from UDP:", err)
-			continue
-		}
-		fmt.Printf("Received message '%s' from %s\n", src.String(), string(buffer[:n]))
-
-		tcpAddr, err := net.ResolveTCPAddr("tcp", string(buffer[:n]))
-		// Connect to the address with tcp
-		conn, err := net.DialTCP("tcp", nil, tcpAddr)
-
-		if err != nil {
-			fmt.Println(err)
-			os.Exit(1)
+			return errorMsg(err)
 		}
 
-		// Send a message to the server
-		_, err = conn.Write([]byte("Hello TCP Server\n"))
-		fmt.Println("send...")
+		conn, err := net.ListenUDP("udp", addr)
 		if err != nil {
-			fmt.Println(err)
-			os.Exit(1)
+			return errorMsg(err)
 		}
-
-		fmt.Println("Message sent")
 		defer conn.Close()
-		break
+
+		buffer := make([]byte, 1024)
+		for {
+			n, _, err := conn.ReadFromUDP(buffer)
+			if err != nil {
+				continue
+			}
+
+			tcpAddr, err := net.ResolveTCPAddr("tcp", string(buffer[:n]))
+			// Connect to the address with tcp
+			conn, err := net.DialTCP("tcp", nil, tcpAddr)
+
+			if err != nil {
+				return errorMsg(err)
+			}
+
+			// Send a message to the server
+			_, err = conn.Write([]byte("Hello TCP Server\n"))
+			if err != nil {
+				return errorMsg(err)
+			}
+
+			defer conn.Close()
+			return statusMsg("Message sent")
+		}
 	}
 }
 
 type model struct {
+	spinner        spinner.Model
+	secondsElapsed int
+	searching      bool
+
 	devices  []string
 	cursor   int
 	selected map[int]struct{}
+
+	errorMsg string
+	message  string
+}
+
+type tickMsg time.Time
+
+func tick() tea.Cmd {
+	return tea.Tick(time.Second, func(t time.Time) tea.Msg {
+		return tickMsg(t)
+	})
 }
 
 func initialModel() model {
+	s := spinner.New()
+	s.Spinner = spinner.Dot
+	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
+
 	return model{
-		devices:  []string{},
-		cursor:   0,
-		selected: make(map[int]struct{}),
+		spinner:   s,
+		devices:   []string{},
+		searching: true,
+
+		cursor:         0,
+		selected:       make(map[int]struct{}),
+		secondsElapsed: 0,
+
+		errorMsg: "",
+		message:  "",
 	}
 }
 
 func (m model) Init() tea.Cmd {
-	go listenForBroadcast()
-	return nil
+	return tea.Batch(tick(), m.spinner.Tick, startSearching(), tea.EnterAltScreen)
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+
+	case tickMsg:
+		m.secondsElapsed++
+		return m, tick()
+
+	case errorMsg:
+		m.searching = false
+		m.errorMsg = msg.Error()
+		return m, tea.Quit
+
+	case statusMsg:
+		m.searching = false
+		m.message = string(msg)
+		return m, nil
 
 	case tea.KeyMsg:
 
@@ -129,6 +167,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.selected[m.cursor] = struct{}{}
 			}
 		}
+
+	default:
+		var cmd tea.Cmd
+		m.spinner, cmd = m.spinner.Update(msg)
+		return m, cmd
 	}
 
 	// Return the updated model to the Bubble Tea runtime for processing.
@@ -136,9 +179,30 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+var headerStyle = lipgloss.NewStyle().
+	Bold(true).
+	Foreground(lipgloss.Color("#FAFAFA")).
+	Background(lipgloss.Color("#7D56F4")).
+	PaddingTop(1).
+	PaddingBottom(1).
+	PaddingLeft(4).
+	Width(32)
+
 func (m model) View() string {
-	// The header
-	s := fmt.Sprintf("Searching for devices... (%d)\n\n", len(m.devices))
+	s := headerStyle.Render("GoDrop")
+	s += "\n\n"
+
+	if m.searching {
+		s += fmt.Sprintf("%s Searching for devices... (%d)\n\n", m.spinner.View(), m.secondsElapsed)
+	}
+
+	if m.errorMsg != "" {
+		s += fmt.Sprintf("Error: %s\n\n", m.errorMsg)
+	}
+
+	if m.message != "" {
+		s += fmt.Sprintf("Status: %s\n\n", m.message)
+	}
 
 	// Iterate over our choices
 	for i, choice := range m.devices {
@@ -159,10 +223,8 @@ func (m model) View() string {
 		s += fmt.Sprintf("%s [%s] %s\n", cursor, checked, choice)
 	}
 
-	// The footer
 	s += "\nPress q to quit.\n"
 
-	// Send the UI for rendering
 	return s
 }
 
