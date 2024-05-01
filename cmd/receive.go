@@ -2,11 +2,12 @@ package drop
 
 import (
 	"bufio"
+	"drop/pkg/device"
+	"drop/pkg/network"
 	"fmt"
 	"log"
 	"net"
 	"os"
-	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -28,28 +29,16 @@ func handleConnection(conn net.Conn) {
 	}
 }
 
-// Broadcast your presence on the network
-func broadcastPresence(tcpAddress string) {
-	conn, err := net.Dial("udp", "255.255.255.255:6969")
-	if err != nil {
-		fmt.Println("Error setting up broadcast:", err)
-		return
-	}
-
-	defer conn.Close()
-
-	fmt.Println("Broadcasting presence...")
-
-	for {
-		conn.Write([]byte(tcpAddress))
-		time.Sleep(5 * time.Second)
-	}
-}
-
 var receiveCommand = &cobra.Command{
 	Use:   "receive",
 	Short: "Receive file",
 	Run: func(cmd *cobra.Command, args []string) {
+		name, err := device.GetName()
+		if err != nil {
+			fmt.Println("Error getting hostname:", err)
+			return
+		}
+
 		fmt.Println("Waiting for incoming files...")
 
 		// Listen on any available port
@@ -59,8 +48,12 @@ var receiveCommand = &cobra.Command{
 		}
 		defer listener.Close()
 
-		fmt.Println("Listening on", listener.Addr().String())
-		go broadcastPresence(listener.Addr().String())
+		presenseMsg := network.DevicePresenseMsg{
+			Name:    name,
+			Address: listener.Addr().String(),
+		}
+
+		go network.BroadcastPresence(presenseMsg)
 
 		for {
 			// Accept new connections
@@ -68,7 +61,7 @@ var receiveCommand = &cobra.Command{
 			if err != nil {
 				fmt.Println(err)
 			}
-			// Handle new connections in a Goroutine for concurrency
+
 			go handleConnection(conn)
 		}
 	},

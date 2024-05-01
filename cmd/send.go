@@ -1,7 +1,7 @@
 package drop
 
 import (
-	styles "drop/styles"
+	"drop/styles"
 	"fmt"
 	"net"
 	"os"
