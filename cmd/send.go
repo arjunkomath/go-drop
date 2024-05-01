@@ -196,7 +196,7 @@ func (m model) View() string {
 				cursor = styles.SelectedDeviceStyle.Render(">")
 			}
 
-			s += fmt.Sprintf("%s %s (%s)\n", cursor, styles.DeviceNameStyle.Render(choice.tcpIP), choice.name)
+			s += fmt.Sprintf("%s %s\t%s\n", cursor, styles.DeviceNameStyle.Render(choice.name), choice.tcpIP)
 		}
 	}
 

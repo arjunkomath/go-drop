@@ -33,12 +33,9 @@ func BroadcastPresence(message DevicePresenseMsg) {
 		return
 	}
 
-	// Convert the byte slice to a string and print
-	fmt.Println("JSON string:", string(jsonData))
-
 	for {
 		conn.Write([]byte(jsonData))
-		time.Sleep(5 * time.Second)
+		time.Sleep(1 * time.Second)
 	}
 }
 
