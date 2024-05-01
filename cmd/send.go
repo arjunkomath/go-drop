@@ -1,6 +1,7 @@
 package drop
 
 import (
+	"drop/pkg/network"
 	"drop/styles"
 	"fmt"
 	"net"
@@ -60,21 +61,27 @@ func searchForDevices() tea.Cmd {
 
 		buffer := make([]byte, 1024)
 		for {
-			n, src, err := conn.ReadFromUDP(buffer)
+			n, _, err := conn.ReadFromUDP(buffer)
 			if err != nil {
 				continue
 			}
 
-			tcpIP := string(buffer[:n])
+			deviceMessage, err := network.ParseDevicePresence(buffer[:n])
+			if err != nil {
+				continue
+			}
+
+			tcpIP := deviceMessage.Address
 
 			if slices.Contains(allDevices, tcpIP) {
 				continue
 			}
 
 			allDevices = append(allDevices, tcpIP)
+
 			return deviceFound{
 				tcpIP: tcpIP,
-				name:  "Device: " + src.String(),
+				name:  deviceMessage.Name,
 			}
 		}
 	}

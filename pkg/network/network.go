@@ -14,7 +14,7 @@ type DevicePresenseMsg struct {
 	Address string `json:"address"`
 }
 
-// Broadcast device presence on the network
+// BroadcastPresence will broadcast device presence on the network
 func BroadcastPresence(message DevicePresenseMsg) {
 	conn, err := net.Dial("udp", "255.255.255.255:6969")
 	if err != nil {
@@ -40,4 +40,14 @@ func BroadcastPresence(message DevicePresenseMsg) {
 		conn.Write([]byte(jsonData))
 		time.Sleep(5 * time.Second)
 	}
+}
+
+// ParseDevicePresence parses the device presence message
+func ParseDevicePresence(data []byte) (DevicePresenseMsg, error) {
+	var message DevicePresenseMsg
+	err := json.Unmarshal(data, &message)
+	if err != nil {
+		return message, err
+	}
+	return message, nil
 }
