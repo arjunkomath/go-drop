@@ -1,6 +1,7 @@
 package drop
 
 import (
+	styles "drop/styles"
 	"fmt"
 	"net"
 	"os"
@@ -10,32 +11,41 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
+	"golang.org/x/exp/slices"
 )
-
-func sendTCPMessage(addr *net.TCPAddr) {
-	// Connect to the address with tcp
-	conn, err := net.DialTCP("tcp", nil, addr)
-
-	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
-	}
-
-	// Send a message to the server
-	_, err = conn.Write([]byte("Hello from TCP Server\n"))
-	fmt.Println("send...")
-	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
-	}
-
-	fmt.Println("Message sent")
-}
 
 type errorMsg error
 type statusMsg string
 
-func startSearching() tea.Cmd {
+type deviceFound struct {
+	tcpIP string
+	name  string
+}
+
+var allDevices = make([]string, 0)
+
+func sendTCPMessage(device deviceFound) tea.Cmd {
+	return func() tea.Msg {
+		tcpAddr, err := net.ResolveTCPAddr("tcp", string(device.tcpIP))
+		// Connect to the address with tcp
+		conn, err := net.DialTCP("tcp", nil, tcpAddr)
+
+		if err != nil {
+			return errorMsg(err)
+		}
+
+		// Send a message to the server
+		_, err = conn.Write([]byte("Hello TCP Server\n"))
+		if err != nil {
+			return errorMsg(err)
+		}
+
+		defer conn.Close()
+		return statusMsg("Message sent")
+	}
+}
+
+func searchForDevices() tea.Cmd {
 	return func() tea.Msg {
 		addr, err := net.ResolveUDPAddr("udp", ":6969")
 		if err != nil {
@@ -50,27 +60,22 @@ func startSearching() tea.Cmd {
 
 		buffer := make([]byte, 1024)
 		for {
-			n, _, err := conn.ReadFromUDP(buffer)
+			n, src, err := conn.ReadFromUDP(buffer)
 			if err != nil {
 				continue
 			}
 
-			tcpAddr, err := net.ResolveTCPAddr("tcp", string(buffer[:n]))
-			// Connect to the address with tcp
-			conn, err := net.DialTCP("tcp", nil, tcpAddr)
+			tcpIP := string(buffer[:n])
 
-			if err != nil {
-				return errorMsg(err)
+			if slices.Contains(allDevices, tcpIP) {
+				continue
 			}
 
-			// Send a message to the server
-			_, err = conn.Write([]byte("Hello TCP Server\n"))
-			if err != nil {
-				return errorMsg(err)
+			allDevices = append(allDevices, tcpIP)
+			return deviceFound{
+				tcpIP: tcpIP,
+				name:  "Device: " + src.String(),
 			}
-
-			defer conn.Close()
-			return statusMsg("Message sent")
 		}
 	}
 }
@@ -80,9 +85,8 @@ type model struct {
 	secondsElapsed int
 	searching      bool
 
-	devices  []string
-	cursor   int
-	selected map[int]struct{}
+	devices []deviceFound
+	cursor  int
 
 	errorMsg string
 	message  string
@@ -103,11 +107,10 @@ func initialModel() model {
 
 	return model{
 		spinner:   s,
-		devices:   []string{},
+		devices:   []deviceFound{},
 		searching: true,
 
 		cursor:         0,
-		selected:       make(map[int]struct{}),
 		secondsElapsed: 0,
 
 		errorMsg: "",
@@ -116,7 +119,7 @@ func initialModel() model {
 }
 
 func (m model) Init() tea.Cmd {
-	return tea.Batch(tick(), m.spinner.Tick, startSearching(), tea.EnterAltScreen)
+	return tea.Batch(tick(), m.spinner.Tick, searchForDevices(), tea.EnterAltScreen)
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -136,36 +139,30 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.message = string(msg)
 		return m, nil
 
+	case deviceFound:
+		m.devices = append(m.devices, msg)
+		return m, searchForDevices()
+
 	case tea.KeyMsg:
 
 		// Cool, what was the actual key pressed?
 		switch msg.String() {
 
-		// These keys should exit the program.
 		case "ctrl+c", "q":
 			return m, tea.Quit
 
-		// The "up" and "k" keys move the cursor up
 		case "up", "k":
 			if m.cursor > 0 {
 				m.cursor--
 			}
 
-		// The "down" and "j" keys move the cursor down
 		case "down", "j":
 			if m.cursor < len(m.devices)-1 {
 				m.cursor++
 			}
 
-		// The "enter" key and the spacebar (a literal space) toggle
-		// the selected state for the item that the cursor is pointing at.
 		case "enter", " ":
-			_, ok := m.selected[m.cursor]
-			if ok {
-				delete(m.selected, m.cursor)
-			} else {
-				m.selected[m.cursor] = struct{}{}
-			}
+			return m, sendTCPMessage(m.devices[m.cursor])
 		}
 
 	default:
@@ -179,51 +176,32 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-var headerStyle = lipgloss.NewStyle().
-	Bold(true).
-	Foreground(lipgloss.Color("#FAFAFA")).
-	Background(lipgloss.Color("#7D56F4")).
-	PaddingTop(1).
-	PaddingBottom(1).
-	PaddingLeft(4).
-	Width(32)
-
 func (m model) View() string {
-	s := headerStyle.Render("GoDrop")
+	s := styles.HeaderStyle.Render("GoDrop")
 	s += "\n\n"
 
 	if m.searching {
-		s += fmt.Sprintf("%s Searching for devices... (%d)\n\n", m.spinner.View(), m.secondsElapsed)
+		s += fmt.Sprintf("%s Searching for devices... (%ds)\n\n", m.spinner.View(), m.secondsElapsed)
+
+		for i, choice := range m.devices {
+			cursor := " "
+			if m.cursor == i {
+				cursor = styles.SelectedDeviceStyle.Render(">")
+			}
+
+			s += fmt.Sprintf("%s %s (%s)\n", cursor, styles.DeviceNameStyle.Render(choice.tcpIP), choice.name)
+		}
 	}
 
 	if m.errorMsg != "" {
-		s += fmt.Sprintf("Error: %s\n\n", m.errorMsg)
+		s += fmt.Sprintf("Error: %s\n", m.errorMsg)
 	}
 
 	if m.message != "" {
-		s += fmt.Sprintf("Status: %s\n\n", m.message)
+		s += fmt.Sprintf("%s\n", m.message)
 	}
 
-	// Iterate over our choices
-	for i, choice := range m.devices {
-
-		// Is the cursor pointing at this choice?
-		cursor := " " // no cursor
-		if m.cursor == i {
-			cursor = ">" // cursor!
-		}
-
-		// Is this choice selected?
-		checked := " " // not selected
-		if _, ok := m.selected[i]; ok {
-			checked = "x" // selected!
-		}
-
-		// Render the row
-		s += fmt.Sprintf("%s [%s] %s\n", cursor, checked, choice)
-	}
-
-	s += "\nPress q to quit.\n"
+	s += "\n(press q to quit)\n"
 
 	return s
 }
