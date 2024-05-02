@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
+	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
@@ -25,18 +26,16 @@ type deviceFound struct {
 
 var allDevices = make([]string, 0)
 
-func sendTCPMessage(device deviceFound) tea.Cmd {
+func sendTCPMessage(device deviceFound, message string) tea.Cmd {
 	return func() tea.Msg {
 		tcpAddr, err := net.ResolveTCPAddr("tcp", string(device.tcpIP))
-		// Connect to the address with tcp
 		conn, err := net.DialTCP("tcp", nil, tcpAddr)
 
 		if err != nil {
 			return errorMsg(err)
 		}
 
-		// Send a message to the server
-		_, err = conn.Write([]byte("Hello TCP Server\n"))
+		_, err = conn.Write([]byte(message + "\n"))
 		if err != nil {
 			return errorMsg(err)
 		}
@@ -87,18 +86,6 @@ func searchForDevices() tea.Cmd {
 	}
 }
 
-type model struct {
-	spinner        spinner.Model
-	secondsElapsed int
-	searching      bool
-
-	devices []deviceFound
-	cursor  int
-
-	errorMsg string
-	message  string
-}
-
 type tickMsg time.Time
 
 func tick() tea.Cmd {
@@ -107,18 +94,41 @@ func tick() tea.Cmd {
 	})
 }
 
+type model struct {
+	spinner        spinner.Model
+	secondsElapsed int
+	searching      bool
+
+	devices []deviceFound
+	cursor  int
+	input   string
+
+	sending  bool
+	textarea textarea.Model
+
+	errorMsg string
+	message  string
+}
+
 func initialModel() model {
 	s := spinner.New()
 	s.Spinner = spinner.Dot
 	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
 
-	return model{
-		spinner:   s,
-		devices:   []deviceFound{},
-		searching: true,
+	ti := textarea.New()
+	ti.Placeholder = "Hello world..."
+	ti.Focus()
 
-		cursor:         0,
+	return model{
+		spinner:        s,
 		secondsElapsed: 0,
+
+		searching: true,
+		devices:   []deviceFound{},
+		cursor:    0,
+
+		sending:  false,
+		textarea: ti,
 
 		errorMsg: "",
 		message:  "",
@@ -130,6 +140,9 @@ func (m model) Init() tea.Cmd {
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmds []tea.Cmd
+	var cmd tea.Cmd
+
 	switch msg := msg.(type) {
 
 	case tickMsg:
@@ -151,36 +164,48 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, searchForDevices()
 
 	case tea.KeyMsg:
+		switch msg.Type {
 
-		// Cool, what was the actual key pressed?
-		switch msg.String() {
-
-		case "ctrl+c", "q":
+		case tea.KeyCtrlC:
 			return m, tea.Quit
 
-		case "up", "k":
+		case tea.KeyUp:
 			if m.cursor > 0 {
 				m.cursor--
 			}
 
-		case "down", "j":
+		case tea.KeyDown:
 			if m.cursor < len(m.devices)-1 {
 				m.cursor++
 			}
 
-		case "enter", " ":
-			return m, sendTCPMessage(m.devices[m.cursor])
-		}
+		case tea.KeyEnter:
+			m.searching = false
+			m.sending = true
+			return m, textarea.Blink
 
-	default:
-		var cmd tea.Cmd
-		m.spinner, cmd = m.spinner.Update(msg)
-		return m, cmd
+		case tea.KeyEsc:
+			if m.textarea.Focused() {
+				m.textarea.Blur()
+			}
+
+		case tea.KeyCtrlS:
+			m.sending = false
+			return m, sendTCPMessage(m.devices[m.cursor], m.textarea.Value())
+
+		default:
+			if !m.textarea.Focused() {
+				cmd = m.textarea.Focus()
+				cmds = append(cmds, cmd)
+			}
+		}
 	}
 
-	// Return the updated model to the Bubble Tea runtime for processing.
-	// Note that we're not returning a command.
-	return m, nil
+	m.spinner, cmd = m.spinner.Update(msg)
+	cmds = append(cmds, cmd)
+	m.textarea, cmd = m.textarea.Update(msg)
+	cmds = append(cmds, cmd)
+	return m, tea.Batch(cmds...)
 }
 
 func (m model) View() string {
@@ -200,6 +225,13 @@ func (m model) View() string {
 		}
 	}
 
+	if m.sending {
+		s += fmt.Sprintf(
+			"Enter message.\n\n%s\n",
+			m.textarea.View(),
+		)
+	}
+
 	if m.errorMsg != "" {
 		s += fmt.Sprintf("Error: %s\n", m.errorMsg)
 	}
@@ -208,7 +240,11 @@ func (m model) View() string {
 		s += fmt.Sprintf("%s\n", m.message)
 	}
 
-	s += "\n(press q to quit)\n"
+	if m.sending {
+		s += "\n(press ctrl+s to send, ctrl+c to quit)\n"
+	} else {
+		s += "\n(press ctrl+c to quit)\n"
+	}
 
 	return s
 }
