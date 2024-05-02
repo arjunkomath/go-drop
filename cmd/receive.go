@@ -33,6 +33,12 @@ var receiveCommand = &cobra.Command{
 	Use:   "receive",
 	Short: "Receive file",
 	Run: func(cmd *cobra.Command, args []string) {
+		localIP, err := network.GetOutboundIP()
+		if err != nil {
+			fmt.Println("Error getting local IP:", err)
+			return
+		}
+
 		name, err := device.GetName()
 		if err != nil {
 			fmt.Println("Error getting hostname:", err)
@@ -42,7 +48,7 @@ var receiveCommand = &cobra.Command{
 		fmt.Println("Waiting for incoming files...")
 
 		// Listen on any available port
-		listener, err := net.Listen("tcp", ":0")
+		listener, err := net.Listen("tcp", localIP.To4().String()+":0")
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -52,6 +58,7 @@ var receiveCommand = &cobra.Command{
 			Name:    name,
 			Address: listener.Addr().String(),
 		}
+		fmt.Println("Listening on", listener.Addr().String())
 
 		go network.BroadcastPresence(presenseMsg)
 
