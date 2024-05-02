@@ -48,7 +48,7 @@ func sendTCPMessage(device deviceFound) tea.Cmd {
 
 func searchForDevices() tea.Cmd {
 	return func() tea.Msg {
-		addr, err := net.ResolveUDPAddr("udp", ":6969")
+		addr, err := net.ResolveUDPAddr("udp", fmt.Sprintf(":%d", network.UDPPort))
 		if err != nil {
 			return errorMsg(err)
 		}
@@ -139,7 +139,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case errorMsg:
 		m.searching = false
 		m.errorMsg = msg.Error()
-		return m, tea.Quit
+		return m, nil
 
 	case statusMsg:
 		m.searching = false

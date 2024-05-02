@@ -7,6 +7,9 @@ import (
 	"time"
 )
 
+// UDPPort is the port used for UDP communication
+var UDPPort = 5050
+
 // DevicePresenseMsg is a struct that represents the message sent by a device to
 // broadcast its presence on the network
 type DevicePresenseMsg struct {
@@ -16,7 +19,7 @@ type DevicePresenseMsg struct {
 
 // BroadcastPresence will broadcast device presence on the network
 func BroadcastPresence(message DevicePresenseMsg) {
-	conn, err := net.Dial("udp", "255.255.255.255:6969")
+	conn, err := net.Dial("udp", fmt.Sprintf("255.255.255.255:%d", UDPPort))
 	if err != nil {
 		fmt.Println("Error setting up broadcast:", err)
 		return
