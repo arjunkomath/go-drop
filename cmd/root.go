@@ -1,6 +1,8 @@
 package drop
 
 import (
+	"drop/pkg/receive"
+	"drop/pkg/send"
 	"fmt"
 	"os"
 
@@ -22,8 +24,8 @@ It allows you to send files to other devices on the same network.`,
 
 // Execute runs the root command.
 func Execute() {
-	rootCmd.AddCommand(sendCommand)
-	rootCmd.AddCommand(receiveCommand)
+	rootCmd.AddCommand(send.Command)
+	rootCmd.AddCommand(receive.Command)
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Println(err)

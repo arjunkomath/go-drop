@@ -1,12 +1,12 @@
-package drop
+package send
 
 import (
 	"drop/pkg/network"
+	"drop/pkg/utils"
 	"drop/styles"
 	"fmt"
 	"net"
 	"os"
-	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textarea"
@@ -86,14 +86,6 @@ func searchForDevices() tea.Cmd {
 	}
 }
 
-type tickMsg time.Time
-
-func tick() tea.Cmd {
-	return tea.Tick(time.Second, func(t time.Time) tea.Msg {
-		return tickMsg(t)
-	})
-}
-
 type model struct {
 	spinner        spinner.Model
 	secondsElapsed int
@@ -136,7 +128,7 @@ func initialModel() model {
 }
 
 func (m model) Init() tea.Cmd {
-	return tea.Batch(tick(), m.spinner.Tick, searchForDevices(), tea.EnterAltScreen)
+	return tea.Batch(utils.SecondTick(), m.spinner.Tick, searchForDevices(), tea.EnterAltScreen)
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -145,9 +137,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 
-	case tickMsg:
+	case utils.TickMsg:
 		m.secondsElapsed++
-		return m, tick()
+		return m, utils.SecondTick()
 
 	case errorMsg:
 		m.searching = false
@@ -249,7 +241,8 @@ func (m model) View() string {
 	return s
 }
 
-var sendCommand = &cobra.Command{
+// Command used for sending data
+var Command = &cobra.Command{
 	Use:   "send",
 	Short: "Send file",
 	Run: func(cmd *cobra.Command, args []string) {

@@ -3,6 +3,7 @@ package network
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net"
 	"time"
 )
@@ -21,18 +22,16 @@ type DevicePresenseMsg struct {
 func BroadcastPresence(message DevicePresenseMsg) {
 	conn, err := net.Dial("udp", fmt.Sprintf("255.255.255.255:%d", UDPPort))
 	if err != nil {
-		fmt.Println("Error setting up broadcast:", err)
+		log.Panicln("Error converting to JSON:", err)
 		return
 	}
 
 	defer conn.Close()
 
-	fmt.Println("Broadcasting presence...")
-
 	// Convert the struct to a JSON string
 	jsonData, err := json.Marshal(message) // Marshaling converts struct to JSON
 	if err != nil {
-		fmt.Println("Error converting to JSON:", err)
+		log.Panicln("Error converting to JSON:", err)
 		return
 	}
 

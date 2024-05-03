@@ -1,7 +1,7 @@
 package device
 
 import (
-	"fmt"
+	"log"
 	"os"
 )
 
@@ -9,8 +9,7 @@ import (
 func GetName() (string, error) {
 	hostname, err := os.Hostname()
 	if err != nil {
-		fmt.Println("Error getting hostname:", err)
-		return "", err
+		log.Fatalln("Error getting hostname:", err)
 	}
 
 	return hostname, nil
