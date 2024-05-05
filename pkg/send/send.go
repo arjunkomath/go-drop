@@ -112,9 +112,11 @@ func initialModel() model {
 	ti.Placeholder = "Hello world..."
 	ti.Focus()
 
+	sw := stopwatch.NewWithInterval(time.Second)
+
 	return model{
 		spinner:   s,
-		stopwatch: stopwatch.NewWithInterval(time.Second),
+		stopwatch: sw,
 
 		searching: true,
 		devices:   []deviceFound{},

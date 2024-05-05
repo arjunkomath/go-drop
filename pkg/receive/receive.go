@@ -4,11 +4,12 @@ import (
 	"bufio"
 	"drop/pkg/device"
 	"drop/pkg/network"
-	"drop/pkg/utils"
 	"drop/styles"
 	"fmt"
+	"github.com/charmbracelet/bubbles/stopwatch"
 	"net"
 	"os"
+	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
@@ -67,11 +68,12 @@ type errorMsg error
 type statusMsg string
 
 type model struct {
-	spinner        spinner.Model
-	secondsElapsed int
-	waiting        bool
-	errorMsg       string
-	message        string
+	spinner   spinner.Model
+	stopwatch stopwatch.Model
+	waiting   bool
+
+	errorMsg string
+	message  string
 }
 
 func initialModel() model {
@@ -79,17 +81,19 @@ func initialModel() model {
 	s.Spinner = spinner.Dot
 	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
 
+	sw := stopwatch.NewWithInterval(time.Second)
+
 	return model{
-		spinner:        s,
-		secondsElapsed: 0,
-		waiting:        true,
-		errorMsg:       "",
-		message:        "",
+		spinner:   s,
+		stopwatch: sw,
+		waiting:   true,
+		errorMsg:  "",
+		message:   "",
 	}
 }
 
 func (m model) Init() tea.Cmd {
-	return tea.Batch(utils.SecondTick(), m.spinner.Tick, tea.EnterAltScreen, waitForData())
+	return tea.Batch(m.spinner.Tick, m.stopwatch.Init(), tea.EnterAltScreen, waitForData())
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -97,10 +101,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 
 	switch msg := msg.(type) {
-	case utils.TickMsg:
-		m.secondsElapsed++
-		return m, utils.SecondTick()
-
 	case errorMsg:
 		m.waiting = false
 		m.errorMsg = msg.Error()
@@ -121,6 +121,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	m.spinner, cmd = m.spinner.Update(msg)
 	cmds = append(cmds, cmd)
+	m.stopwatch, cmd = m.stopwatch.Update(msg)
+	cmds = append(cmds, cmd)
 	return m, tea.Batch(cmds...)
 }
 
@@ -129,7 +131,7 @@ func (m model) View() string {
 	s += "\n\n"
 
 	if m.waiting {
-		s += fmt.Sprintf("%s Waiting for data... (%ds)\n\n", m.spinner.View(), m.secondsElapsed)
+		s += fmt.Sprintf("%s Waiting for data... (%s)\n\n", m.spinner.View(), m.stopwatch.View())
 	}
 
 	if m.errorMsg != "" {
