@@ -2,13 +2,14 @@ package send
 
 import (
 	"drop/pkg/network"
-	"drop/pkg/utils"
 	"drop/styles"
 	"fmt"
 	"net"
 	"os"
+	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
+	"github.com/charmbracelet/bubbles/stopwatch"
 	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -87,9 +88,9 @@ func searchForDevices() tea.Cmd {
 }
 
 type model struct {
-	spinner        spinner.Model
-	secondsElapsed int
-	searching      bool
+	stopwatch stopwatch.Model
+	spinner   spinner.Model
+	searching bool
 
 	devices []deviceFound
 	cursor  int
@@ -112,8 +113,8 @@ func initialModel() model {
 	ti.Focus()
 
 	return model{
-		spinner:        s,
-		secondsElapsed: 0,
+		spinner:   s,
+		stopwatch: stopwatch.NewWithInterval(time.Second),
 
 		searching: true,
 		devices:   []deviceFound{},
@@ -128,7 +129,7 @@ func initialModel() model {
 }
 
 func (m model) Init() tea.Cmd {
-	return tea.Batch(utils.SecondTick(), m.spinner.Tick, searchForDevices(), tea.EnterAltScreen)
+	return tea.Batch(m.spinner.Tick, m.stopwatch.Init(), searchForDevices(), tea.EnterAltScreen)
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -136,10 +137,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 
 	switch msg := msg.(type) {
-
-	case utils.TickMsg:
-		m.secondsElapsed++
-		return m, utils.SecondTick()
 
 	case errorMsg:
 		m.searching = false
@@ -197,6 +194,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	cmds = append(cmds, cmd)
 	m.textarea, cmd = m.textarea.Update(msg)
 	cmds = append(cmds, cmd)
+	m.stopwatch, cmd = m.stopwatch.Update(msg)
+	cmds = append(cmds, cmd)
 	return m, tea.Batch(cmds...)
 }
 
@@ -205,7 +204,7 @@ func (m model) View() string {
 	s += "\n\n"
 
 	if m.searching {
-		s += fmt.Sprintf("%s Searching for devices... (%ds)\n\n", m.spinner.View(), m.secondsElapsed)
+		s += fmt.Sprintf("%s Searching for devices... (%s)\n\n", m.spinner.View(), m.stopwatch.View())
 
 		for i, choice := range m.devices {
 			cursor := " "
