@@ -1,15 +1,16 @@
 package receive
 
 import (
-	"bufio"
 	"drop/pkg/device"
 	"drop/pkg/network"
 	"drop/styles"
 	"fmt"
-	"github.com/charmbracelet/bubbles/stopwatch"
+	"io"
 	"net"
 	"os"
 	"time"
+
+	"github.com/charmbracelet/bubbles/stopwatch"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
@@ -52,13 +53,20 @@ func waitForData() tea.Cmd {
 			defer conn.Close()
 
 			for {
-				// Read from the connection untill a new line is send
-				data, err := bufio.NewReader(conn).ReadString('\n')
+				// Open a file to write received data
+				file, err := os.Create("received_file.txt")
+				if err != nil {
+					return errorMsg(err)
+				}
+				defer file.Close()
+
+				// Copy data from the connection to the file
+				_, err = io.Copy(file, conn)
 				if err != nil {
 					return errorMsg(err)
 				}
 
-				return statusMsg(string(data))
+				return statusMsg("Done")
 			}
 		}
 	}

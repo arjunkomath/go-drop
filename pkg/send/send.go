@@ -4,13 +4,13 @@ import (
 	"drop/pkg/network"
 	"drop/styles"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/stopwatch"
-	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
@@ -27,7 +27,7 @@ type deviceFound struct {
 
 var allDevices = make([]string, 0)
 
-func sendTCPMessage(device deviceFound, message string) tea.Cmd {
+func sendFile(device deviceFound, file string) tea.Cmd {
 	return func() tea.Msg {
 		tcpAddr, err := net.ResolveTCPAddr("tcp", string(device.tcpIP))
 		conn, err := net.DialTCP("tcp", nil, tcpAddr)
@@ -36,13 +36,20 @@ func sendTCPMessage(device deviceFound, message string) tea.Cmd {
 			return errorMsg(err)
 		}
 
-		_, err = conn.Write([]byte(message + "\n"))
+		// Open the file to send
+		file, err := os.Open(file) // Make sure the file exists
+		if err != nil {
+			return errorMsg(err)
+		}
+		defer file.Close()
+
+		_, err = io.Copy(conn, file) // Send file content to the server
 		if err != nil {
 			return errorMsg(err)
 		}
 
 		defer conn.Close()
-		return statusMsg("Message sent")
+		return statusMsg("File sent")
 	}
 }
 
@@ -91,39 +98,31 @@ type model struct {
 	stopwatch stopwatch.Model
 	spinner   spinner.Model
 	searching bool
+	file      string
 
 	devices []deviceFound
 	cursor  int
 	input   string
 
-	sending  bool
-	textarea textarea.Model
-
 	errorMsg string
 	message  string
 }
 
-func initialModel() model {
+func initialModel(file string) model {
 	s := spinner.New()
 	s.Spinner = spinner.Dot
 	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
-
-	ti := textarea.New()
-	ti.Placeholder = "Hello world..."
-	ti.Focus()
 
 	sw := stopwatch.NewWithInterval(time.Second)
 
 	return model{
 		spinner:   s,
 		stopwatch: sw,
-
+		file:      file,
 		searching: true,
-		devices:   []deviceFound{},
-		cursor:    0,
 
-		sending:  false,
-		textarea: ti,
+		devices: []deviceFound{},
+		cursor:  0,
 
 		errorMsg: "",
 		message:  "",
@@ -172,29 +171,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case tea.KeyEnter:
 			m.searching = false
-			m.sending = true
-			return m, textarea.Blink
-
-		case tea.KeyEsc:
-			if m.textarea.Focused() {
-				m.textarea.Blur()
-			}
-
-		case tea.KeyCtrlS:
-			m.sending = false
-			return m, sendTCPMessage(m.devices[m.cursor], m.textarea.Value())
+			return m, sendFile(m.devices[m.cursor], m.file)
 
 		default:
-			if !m.textarea.Focused() {
-				cmd = m.textarea.Focus()
-				cmds = append(cmds, cmd)
-			}
+
 		}
 	}
 
 	m.spinner, cmd = m.spinner.Update(msg)
-	cmds = append(cmds, cmd)
-	m.textarea, cmd = m.textarea.Update(msg)
 	cmds = append(cmds, cmd)
 	m.stopwatch, cmd = m.stopwatch.Update(msg)
 	cmds = append(cmds, cmd)
@@ -204,6 +188,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m model) View() string {
 	s := styles.HeaderStyle.Render("GoDrop")
 	s += "\n\n"
+
+	s += fmt.Sprintf("Sending file: %s\n\n", m.file)
 
 	if m.searching {
 		s += fmt.Sprintf("%s Searching for devices... (%s)\n\n", m.spinner.View(), m.stopwatch.View())
@@ -218,13 +204,6 @@ func (m model) View() string {
 		}
 	}
 
-	if m.sending {
-		s += fmt.Sprintf(
-			"Enter message.\n\n%s\n",
-			m.textarea.View(),
-		)
-	}
-
 	if m.errorMsg != "" {
 		s += fmt.Sprintf("Error: %s\n", m.errorMsg)
 	}
@@ -233,11 +212,7 @@ func (m model) View() string {
 		s += fmt.Sprintf("%s\n", m.message)
 	}
 
-	if m.sending {
-		s += "\n(press ctrl+s to send, ctrl+c to quit)\n"
-	} else {
-		s += "\n(press ctrl+c to quit)\n"
-	}
+	s += "\n(press ctrl+c to quit)\n"
 
 	return s
 }
@@ -246,8 +221,11 @@ func (m model) View() string {
 var Command = &cobra.Command{
 	Use:   "send",
 	Short: "Send file",
+	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		p := tea.NewProgram(initialModel())
+		filePath := args[0]
+
+		p := tea.NewProgram(initialModel(filePath))
 		if _, err := p.Run(); err != nil {
 			fmt.Printf("Alas, there's been an error: %v", err)
 			os.Exit(1)
