@@ -1,12 +1,14 @@
 package send
 
 import (
+	"bufio"
 	"drop/pkg/network"
 	"drop/styles"
 	"fmt"
 	"io"
 	"net"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
@@ -32,6 +34,18 @@ func sendFile(device deviceFound, file string) tea.Cmd {
 		tcpAddr, err := net.ResolveTCPAddr("tcp", string(device.tcpIP))
 		conn, err := net.DialTCP("tcp", nil, tcpAddr)
 
+		if err != nil {
+			return errorMsg(err)
+		}
+
+		// Send the file name followed by a newline character
+		fileName := filepath.Base(file)
+		writer := bufio.NewWriter(conn)
+		_, err = writer.WriteString(fileName + "\n")
+		if err != nil {
+			return errorMsg(err)
+		}
+		err = writer.Flush()
 		if err != nil {
 			return errorMsg(err)
 		}
