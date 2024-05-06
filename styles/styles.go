@@ -22,3 +22,8 @@ var DeviceNameStyle = lipgloss.NewStyle().
 var SelectedDeviceStyle = lipgloss.NewStyle().
 	Bold(true).
 	Foreground(lipgloss.Color("#7D56F4"))
+
+// TopBorderStyle is used for adding top only border
+var TopBorderStyle = lipgloss.NewStyle().
+	BorderTop(true).
+	BorderStyle(lipgloss.NormalBorder())

@@ -45,41 +45,38 @@ func waitForData() tea.Cmd {
 
 		go network.BroadcastPresence(presenseMsg)
 
-		for {
-			// Accept new connections
-			conn, err := listener.Accept()
-			if err != nil {
-				return errorMsg(err)
-			}
-
-			defer conn.Close()
-
-			reader := bufio.NewReader(conn)
-
-			// Read the first line from the connection, which is the file name
-			fileName, err := reader.ReadString('\n') // Read until newline
-			if err != nil {
-				return errorMsg(err)
-			}
-
-			// Clean the file name (remove newline/extra spaces)
-			fileName = strings.TrimSpace(fileName)
-
-			// Open a file to write received data
-			file, err := os.Create(fileName)
-			if err != nil {
-				return errorMsg(err)
-			}
-			defer file.Close()
-
-			// Copy data from the connection to the file
-			_, err = io.Copy(file, conn)
-			if err != nil {
-				return errorMsg(err)
-			}
-
-			return statusMsg("Done")
+		// Accept new connections
+		conn, err := listener.Accept()
+		if err != nil {
+			return errorMsg(err)
 		}
+		defer conn.Close()
+
+		reader := bufio.NewReader(conn)
+
+		// Read the first line from the connection, which is the file name
+		fileName, err := reader.ReadString('\n') // Read until newline
+		if err != nil {
+			return errorMsg(err)
+		}
+
+		// Clean the file name (remove newline/extra spaces)
+		fileName = strings.TrimSpace(fileName)
+
+		// Open a file to write received data
+		file, err := os.Create(fileName)
+		if err != nil {
+			return errorMsg(err)
+		}
+		defer file.Close()
+
+		// Copy data from the connection to the file
+		_, err = io.Copy(file, conn)
+		if err != nil {
+			return errorMsg(err)
+		}
+
+		return statusMsg("Done")
 	}
 }
 
@@ -161,7 +158,9 @@ func (m model) View() string {
 		s += fmt.Sprintf("%s\n", m.message)
 	}
 
-	s += "\n(press ctrl+c to quit)\n"
+	s += styles.TopBorderStyle.
+		MarginTop(3).
+		Render("press ctrl+c to quit")
 
 	return s
 }

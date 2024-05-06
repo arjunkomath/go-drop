@@ -139,7 +139,7 @@ func initialModel(file string) model {
 		cursor:  0,
 
 		errorMsg: "",
-		message:  "",
+		message:  fmt.Sprintf("Sending file: %s", file),
 	}
 }
 
@@ -203,7 +203,13 @@ func (m model) View() string {
 	s := styles.HeaderStyle.Render("GoDrop")
 	s += "\n\n"
 
-	s += fmt.Sprintf("Sending file: %s\n\n", m.file)
+	if m.errorMsg != "" {
+		s += fmt.Sprintf("Error: %s\n\n\n", m.errorMsg)
+	}
+
+	if m.message != "" {
+		s += fmt.Sprintf("%s\n\n\n", m.message)
+	}
 
 	if m.searching {
 		s += fmt.Sprintf("%s Searching for devices... (%s)\n\n", m.spinner.View(), m.stopwatch.View())
@@ -218,15 +224,9 @@ func (m model) View() string {
 		}
 	}
 
-	if m.errorMsg != "" {
-		s += fmt.Sprintf("Error: %s\n", m.errorMsg)
-	}
-
-	if m.message != "" {
-		s += fmt.Sprintf("%s\n", m.message)
-	}
-
-	s += "\n(press ctrl+c to quit)\n"
+	s += styles.TopBorderStyle.
+		MarginTop(3).
+		Render("press ctrl+c to quit")
 
 	return s
 }
