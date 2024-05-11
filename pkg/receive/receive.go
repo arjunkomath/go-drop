@@ -2,7 +2,6 @@ package receive
 
 import (
 	"bufio"
-	"drop/pkg/device"
 	"drop/pkg/network"
 	"drop/styles"
 	"fmt"
@@ -27,7 +26,7 @@ func waitForData() tea.Cmd {
 			return errorMsg(err)
 		}
 
-		name, err := device.GetName()
+		name, err := os.Hostname()
 		if err != nil {
 			return errorMsg(err)
 		}
