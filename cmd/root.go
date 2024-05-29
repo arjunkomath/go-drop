@@ -13,7 +13,7 @@ var version = "0.0.2-beta"
 
 var rootCmd = &cobra.Command{
 	Use:   "drop",
-	Short: "Drop is a simple CLI tool for file sharing.",
+	Short: "Drop lets you share files over local network.",
 	Long: `Drop is a simple CLI tool for file sharing.
 It allows you to send files to other devices on the same network.`,
 	Version: version,
