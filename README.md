@@ -11,13 +11,19 @@ A peer-to-peer file transfer tool for your local network, written in Go. Think A
 
 ## Install
 
-You can find compiled binaries in [releases](https://github.com/arjunkomath/go-drop/releases).
+**Homebrew:**
 
-Or build from source:
+```
+brew install arjunkomath/tap/drop
+```
+
+**From source:**
 
 ```
 go install github.com/arjunkomath/go-drop@latest
 ```
+
+Or download compiled binaries from [releases](https://github.com/arjunkomath/go-drop/releases).
 
 ## Usage
 
