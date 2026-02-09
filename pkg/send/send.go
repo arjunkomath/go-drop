@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
@@ -16,7 +17,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
-	"golang.org/x/exp/slices"
 )
 
 type errorMsg error
@@ -27,16 +27,17 @@ type deviceFound struct {
 	name  string
 }
 
-var allDevices = make([]string, 0)
-
 func sendFile(device deviceFound, file string) tea.Cmd {
 	return func() tea.Msg {
 		tcpAddr, err := net.ResolveTCPAddr("tcp", string(device.tcpIP))
-		conn, err := net.DialTCP("tcp", nil, tcpAddr)
-
 		if err != nil {
 			return errorMsg(err)
 		}
+		conn, err := net.DialTCP("tcp", nil, tcpAddr)
+		if err != nil {
+			return errorMsg(err)
+		}
+		defer conn.Close()
 
 		// Send the file name followed by a newline character
 		fileName := filepath.Base(file)
@@ -50,19 +51,29 @@ func sendFile(device deviceFound, file string) tea.Cmd {
 			return errorMsg(err)
 		}
 
+		// Wait for accept/reject response from receiver
+		reader := bufio.NewReader(conn)
+		response, err := reader.ReadString('\n')
+		if err != nil {
+			return errorMsg(fmt.Errorf("failed to read response: %w", err))
+		}
+		response = strings.TrimSpace(response)
+		if response != "accept" {
+			return errorMsg(fmt.Errorf("transfer rejected by receiver"))
+		}
+
 		// Open the file to send
-		file, err := os.Open(file) // Make sure the file exists
+		f, err := os.Open(file)
 		if err != nil {
 			return errorMsg(err)
 		}
-		defer file.Close()
+		defer f.Close()
 
-		_, err = io.Copy(conn, file) // Send file content to the server
+		_, err = io.Copy(conn, f)
 		if err != nil {
 			return errorMsg(err)
 		}
 
-		defer conn.Close()
 		return statusMsg("File sent")
 	}
 }
@@ -81,38 +92,29 @@ func searchForDevices() tea.Cmd {
 		defer conn.Close()
 
 		buffer := make([]byte, 1024)
-		for {
-			n, _, err := conn.ReadFromUDP(buffer)
-			if err != nil {
-				continue
-			}
+		n, _, err := conn.ReadFromUDP(buffer)
+		if err != nil {
+			return errorMsg(fmt.Errorf("failed to read UDP: %w", err))
+		}
 
-			deviceMessage, err := network.ParseDevicePresence(buffer[:n])
-			if err != nil {
-				continue
-			}
+		deviceMessage, err := network.ParseDevicePresence(buffer[:n])
+		if err != nil {
+			return errorMsg(fmt.Errorf("failed to parse device presence: %w", err))
+		}
 
-			tcpIP := deviceMessage.Address
-
-			if slices.Contains(allDevices, tcpIP) {
-				continue
-			}
-
-			allDevices = append(allDevices, tcpIP)
-
-			return deviceFound{
-				tcpIP: tcpIP,
-				name:  deviceMessage.Name,
-			}
+		return deviceFound{
+			tcpIP: deviceMessage.Address,
+			name:  deviceMessage.Name,
 		}
 	}
 }
 
 type model struct {
-	stopwatch stopwatch.Model
-	spinner   spinner.Model
-	searching bool
-	file      string
+	stopwatch  stopwatch.Model
+	spinner    spinner.Model
+	searching  bool
+	file       string
+	discovered map[string]bool
 
 	devices []deviceFound
 	cursor  int
@@ -130,10 +132,11 @@ func initialModel(file string) model {
 	sw := stopwatch.NewWithInterval(time.Second)
 
 	return model{
-		spinner:   s,
-		stopwatch: sw,
-		file:      file,
-		searching: true,
+		spinner:    s,
+		stopwatch:  sw,
+		file:       file,
+		searching:  true,
+		discovered: make(map[string]bool),
 
 		devices: []deviceFound{},
 		cursor:  0,
@@ -164,7 +167,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case deviceFound:
-		m.devices = append(m.devices, msg)
+		if !m.discovered[msg.tcpIP] {
+			m.discovered[msg.tcpIP] = true
+			m.devices = append(m.devices, msg)
+		}
 		return m, searchForDevices()
 
 	case tea.KeyMsg:
@@ -184,6 +190,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case tea.KeyEnter:
+			if len(m.devices) == 0 {
+				return m, nil
+			}
 			m.searching = false
 			return m, sendFile(m.devices[m.cursor], m.file)
 

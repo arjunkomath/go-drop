@@ -1,0 +1,56 @@
+version: 2
+
+project_name: drop
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - main: .
+    binary: drop
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X drop/cmd.version={{.Version}}
+
+archives:
+  - format: tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+
+brews:
+  - repository:
+      owner: arjunkomath
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    directory: Formula
+    homepage: https://github.com/arjunkomath/go-drop
+    description: A peer-to-peer file transfer tool for your local network
+    license: MIT
+    install: |
+      bin.install "drop"
+    test: |
+      system "#{bin}/drop", "version"
+
+release:
+  github:
+    owner: arjunkomath
+    name: go-drop

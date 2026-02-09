@@ -1,9 +1,9 @@
 package network
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net"
 	"time"
 )
@@ -11,19 +11,18 @@ import (
 // UDPPort is the port used for UDP communication
 var UDPPort = 5050
 
-// DevicePresenseMsg is a struct that represents the message sent by a device to
+// DevicePresenceMsg is a struct that represents the message sent by a device to
 // broadcast its presence on the network
-type DevicePresenseMsg struct {
+type DevicePresenceMsg struct {
 	Name    string `json:"name"`
 	Address string `json:"address"`
 }
 
 // BroadcastPresence will broadcast device presence on the network
-func BroadcastPresence(message DevicePresenseMsg) {
+func BroadcastPresence(ctx context.Context, message DevicePresenceMsg) error {
 	conn, err := net.Dial("udp", fmt.Sprintf("255.255.255.255:%d", UDPPort))
 	if err != nil {
-		log.Panicln("Error converting to JSON:", err)
-		return
+		return fmt.Errorf("failed to dial UDP: %w", err)
 	}
 
 	defer conn.Close()
@@ -31,19 +30,25 @@ func BroadcastPresence(message DevicePresenseMsg) {
 	// Convert the struct to a JSON string
 	jsonData, err := json.Marshal(message) // Marshaling converts struct to JSON
 	if err != nil {
-		log.Panicln("Error converting to JSON:", err)
-		return
+		return fmt.Errorf("failed to marshal JSON: %w", err)
 	}
 
 	for {
-		conn.Write([]byte(jsonData))
-		time.Sleep(1 * time.Second)
+		select {
+		case <-ctx.Done():
+			return nil
+		default:
+			if _, err := conn.Write(jsonData); err != nil {
+				return fmt.Errorf("failed to write UDP: %w", err)
+			}
+			time.Sleep(1 * time.Second)
+		}
 	}
 }
 
 // ParseDevicePresence parses the device presence message
-func ParseDevicePresence(data []byte) (DevicePresenseMsg, error) {
-	var message DevicePresenseMsg
+func ParseDevicePresence(data []byte) (DevicePresenceMsg, error) {
+	var message DevicePresenceMsg
 	err := json.Unmarshal(data, &message)
 	if err != nil {
 		return message, err
@@ -59,7 +64,10 @@ func GetOutboundIP() (net.IP, error) {
 	}
 	defer conn.Close()
 
-	localAddr := conn.LocalAddr().(*net.UDPAddr)
+	localAddr, ok := conn.LocalAddr().(*net.UDPAddr)
+	if !ok {
+		return nil, fmt.Errorf("unexpected address type: %T", conn.LocalAddr())
+	}
 
 	return localAddr.IP, nil
 }

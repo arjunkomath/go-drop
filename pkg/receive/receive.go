@@ -2,12 +2,14 @@ package receive
 
 import (
 	"bufio"
+	"context"
 	"drop/pkg/network"
 	"drop/styles"
 	"fmt"
 	"io"
 	"net"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -19,7 +21,13 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func waitForData() tea.Cmd {
+type fileOffer struct {
+	fileName string
+	conn     net.Conn
+	reader   *bufio.Reader
+}
+
+func waitForConnection() tea.Cmd {
 	return func() tea.Msg {
 		localIP, err := network.GetOutboundIP()
 		if err != nil {
@@ -37,30 +45,56 @@ func waitForData() tea.Cmd {
 		}
 		defer listener.Close()
 
-		presenseMsg := network.DevicePresenseMsg{
+		presenceMsg := network.DevicePresenceMsg{
 			Name:    name,
 			Address: listener.Addr().String(),
 		}
 
-		go network.BroadcastPresence(presenseMsg)
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		go network.BroadcastPresence(ctx, presenceMsg)
 
 		// Accept new connections
 		conn, err := listener.Accept()
 		if err != nil {
 			return errorMsg(err)
 		}
-		defer conn.Close()
 
 		reader := bufio.NewReader(conn)
 
 		// Read the first line from the connection, which is the file name
 		fileName, err := reader.ReadString('\n') // Read until newline
 		if err != nil {
+			conn.Close()
 			return errorMsg(err)
 		}
 
-		// Clean the file name (remove newline/extra spaces)
-		fileName = strings.TrimSpace(fileName)
+		// Clean the file name (remove newline/extra spaces and directory components)
+		fileName = filepath.Base(strings.TrimSpace(fileName))
+
+		return fileOffer{
+			fileName: fileName,
+			conn:     conn,
+			reader:   reader,
+		}
+	}
+}
+
+func acceptTransfer(conn net.Conn, reader *bufio.Reader, fileName string) tea.Cmd {
+	return func() tea.Msg {
+		defer conn.Close()
+
+		// Send accept response
+		_, err := conn.Write([]byte("accept\n"))
+		if err != nil {
+			return errorMsg(err)
+		}
+
+		// Check if file already exists
+		if _, err := os.Stat(fileName); err == nil {
+			return errorMsg(fmt.Errorf("file %q already exists", fileName))
+		}
 
 		// Open a file to write received data
 		file, err := os.Create(fileName)
@@ -70,12 +104,22 @@ func waitForData() tea.Cmd {
 		defer file.Close()
 
 		// Copy data from the connection to the file
-		_, err = io.Copy(file, conn)
+		_, err = io.Copy(file, reader)
 		if err != nil {
 			return errorMsg(err)
 		}
 
 		return statusMsg("Done")
+	}
+}
+
+func rejectTransfer(conn net.Conn) tea.Cmd {
+	return func() tea.Msg {
+		defer conn.Close()
+
+		_, _ = conn.Write([]byte("reject\n"))
+
+		return statusMsg("Transfer rejected")
 	}
 }
 
@@ -86,6 +130,9 @@ type model struct {
 	spinner   spinner.Model
 	stopwatch stopwatch.Model
 	waiting   bool
+
+	confirming   bool
+	pendingOffer *fileOffer
 
 	errorMsg string
 	message  string
@@ -108,7 +155,7 @@ func initialModel() model {
 }
 
 func (m model) Init() tea.Cmd {
-	return tea.Batch(m.spinner.Tick, m.stopwatch.Init(), tea.EnterAltScreen, waitForData())
+	return tea.Batch(m.spinner.Tick, m.stopwatch.Init(), tea.EnterAltScreen, waitForConnection())
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -118,17 +165,40 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case errorMsg:
 		m.waiting = false
+		m.confirming = false
 		m.errorMsg = msg.Error()
 		return m, nil
 
 	case statusMsg:
 		m.waiting = false
+		m.confirming = false
 		m.message = string(msg)
 		return m, nil
 
-	case tea.KeyMsg:
-		switch msg.Type {
+	case fileOffer:
+		m.waiting = false
+		m.confirming = true
+		m.pendingOffer = &msg
+		return m, nil
 
+	case tea.KeyMsg:
+		if m.confirming && m.pendingOffer != nil {
+			switch msg.String() {
+			case "y":
+				offer := m.pendingOffer
+				m.confirming = false
+				m.pendingOffer = nil
+				m.waiting = true
+				return m, acceptTransfer(offer.conn, offer.reader, offer.fileName)
+			case "n":
+				offer := m.pendingOffer
+				m.confirming = false
+				m.pendingOffer = nil
+				return m, rejectTransfer(offer.conn)
+			}
+		}
+
+		switch msg.Type {
 		case tea.KeyCtrlC:
 			return m, tea.Quit
 		}
@@ -147,6 +217,10 @@ func (m model) View() string {
 
 	if m.waiting {
 		s += fmt.Sprintf("%s Waiting for data... (%s)\n\n", m.spinner.View(), m.stopwatch.View())
+	}
+
+	if m.confirming && m.pendingOffer != nil {
+		s += fmt.Sprintf("Incoming file: %s. Accept? (y/n)\n\n", m.pendingOffer.fileName)
 	}
 
 	if m.errorMsg != "" {
